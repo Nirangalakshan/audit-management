@@ -1,12 +1,11 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
   BarChart,
   Bar,
-  LineChart,
-  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -26,8 +25,10 @@ import {
   MoreHorizontal,
   Filter,
   Calendar,
+  Loader2,
 } from "lucide-react";
 import Link from "next/link";
+import { createClient } from "@/lib/supabase/client";
 
 const complianceTrendData = [
   { month: "Jan", score: 65 },
@@ -38,56 +39,37 @@ const complianceTrendData = [
   { month: "Jun", score: 88 },
 ];
 
-const auditComparisonData = [
-  { name: "Completed", value: 24 },
-  { name: "In Progress", value: 8 },
-  { name: "Pending", value: 5 },
-];
-
-const recentAudits = [
-  {
-    id: 1,
-    name: "Q2 Compliance Audit",
-    organization: "Manufacturing Dept",
-    status: "Completed",
-    date: "Jun 15, 2025",
-    auditor: "John Doe",
-  },
-  {
-    id: 2,
-    name: "Safety & Health Assessment",
-    organization: "Production Facility",
-    status: "In Progress",
-    date: "Jun 20, 2025",
-    auditor: "Jane Smith",
-  },
-  {
-    id: 3,
-    name: "Financial Controls Review",
-    organization: "Finance Team",
-    status: "In Progress",
-    date: "Jun 18, 2025",
-    auditor: "Mike Johnson",
-  },
-  {
-    id: 4,
-    name: "ISO 9001 Internal Audit",
-    organization: "Quality Assurance",
-    status: "Pending",
-    date: "Jun 25, 2025",
-    auditor: "Sarah Wilson",
-  },
-  {
-    id: 5,
-    name: "Data Security Audit",
-    organization: "IT Department",
-    status: "Completed",
-    date: "Jun 10, 2025",
-    auditor: "Tom Brown",
-  },
-];
-
 export default function DashboardPage() {
+  const supabase = createClient();
+  const [sessions, setSessions] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchDashboardData();
+  }, []);
+
+  const fetchDashboardData = async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from("audit_sessions")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(5);
+
+      if (error) {
+        console.error("Error fetching dashboard data:", error);
+        setSessions([]);
+      } else {
+        setSessions(data || []);
+      }
+    } catch (error) {
+      console.error("Error:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case "Completed":
@@ -100,6 +82,69 @@ export default function DashboardPage() {
         return "bg-slate-50 text-slate-700 border-slate-100";
     }
   };
+
+  const kpis = [
+    {
+      label: "Total Audits",
+      value: sessions.length.toString(),
+      change: "+12.5%",
+      increasing: true,
+      icon: BarChart3,
+      color: "blue",
+      gradient: "from-blue-500/10 to-indigo-500/10",
+    },
+    {
+      label: "Avg. Progress",
+      value:
+        sessions.length > 0
+          ? `${Math.round(
+              sessions.reduce((acc, s) => acc + (s.progress || 0), 0) /
+                sessions.length
+            )}%`
+          : "0%",
+      change: "+4.1%",
+      increasing: true,
+      icon: CheckCircle2,
+      color: "emerald",
+      gradient: "from-emerald-500/10 to-teal-500/10",
+    },
+    {
+      label: "Open Sessions",
+      value: sessions
+        .filter((s) => s.status !== "Completed")
+        .length.toString()
+        .padStart(2, "0"),
+      change: "-2 issues",
+      increasing: false,
+      icon: AlertCircle,
+      color: "rose",
+      gradient: "from-rose-500/10 to-orange-500/10",
+    },
+    {
+      label: "Team Activity",
+      value: "Active",
+      change: "+18%",
+      increasing: true,
+      icon: TrendingUp,
+      color: "violet",
+      gradient: "from-violet-500/10 to-purple-500/10",
+    },
+  ];
+
+  const auditComparisonData = [
+    {
+      name: "Completed",
+      value: sessions.filter((s) => s.status === "Completed").length || 1,
+    },
+    {
+      name: "In Progress",
+      value: sessions.filter((s) => s.status === "In Progress").length || 1,
+    },
+    {
+      name: "Pending",
+      value: sessions.filter((s) => s.status === "Pending").length || 1,
+    },
+  ];
 
   return (
     <div className="space-y-10">
@@ -131,7 +176,7 @@ export default function DashboardPage() {
             <Calendar className="w-4 h-4" />
             Last 30 Days
           </Button>
-          <Link href="/dashboard/audits">
+          <Link href="/dashboard/templates">
             <Button className="h-12 px-8 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-xl shadow-blue-500/20 flex items-center gap-2 transition-all active:scale-95">
               <Plus className="w-5 h-5" />
               Initiate New Audit
@@ -142,44 +187,7 @@ export default function DashboardPage() {
 
       {/* KPI Cards */}
       <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {[
-          {
-            label: "Total Audits",
-            value: "148",
-            change: "+12.5%",
-            increasing: true,
-            icon: BarChart3,
-            color: "blue",
-            gradient: "from-blue-500/10 to-indigo-500/10",
-          },
-          {
-            label: "Avg. Score",
-            value: "92.4%",
-            change: "+4.1%",
-            increasing: true,
-            icon: CheckCircle2,
-            color: "emerald",
-            gradient: "from-emerald-500/10 to-teal-500/10",
-          },
-          {
-            label: "Open NCRs",
-            value: "07",
-            change: "-2 issues",
-            increasing: false,
-            icon: AlertCircle,
-            color: "rose",
-            gradient: "from-rose-500/10 to-orange-500/10",
-          },
-          {
-            label: "Team Activity",
-            value: "2.4k",
-            change: "+18%",
-            increasing: true,
-            icon: TrendingUp,
-            color: "violet",
-            gradient: "from-violet-500/10 to-purple-500/10",
-          },
-        ].map((kpi, idx) => (
+        {kpis.map((kpi, idx) => (
           <Card
             key={idx}
             className="relative p-7 border-none shadow-sm bg-white overflow-hidden group hover:shadow-xl hover:shadow-slate-200/50 transition-all duration-300 rounded-4xl"
@@ -203,9 +211,7 @@ export default function DashboardPage() {
                   {kpi.value}
                 </h3>
                 <div
-                  className={`flex items-center gap-1 pb-1 ${
-                    kpi.increasing ? "text-emerald-600" : "text-emerald-600"
-                  }`}
+                  className={`flex items-center gap-1 pb-1 text-emerald-600`}
                 >
                   {kpi.increasing ? (
                     <ArrowUp className="w-3 h-3" />
@@ -332,7 +338,6 @@ export default function DashboardPage() {
                     fill: "#94a3b8",
                     fontSize: 10,
                     fontWeight: 800,
-                    textTransform: "uppercase",
                   }}
                   dy={10}
                 />
@@ -409,89 +414,108 @@ export default function DashboardPage() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="bg-slate-50/50">
-                <th className="px-10 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                  Audit Profile
-                </th>
-                <th className="px-10 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                  Department
-                </th>
-                <th className="px-10 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                  Session Status
-                </th>
-                <th className="px-10 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                  Schedule
-                </th>
-                <th className="px-10 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                  Assignee
-                </th>
-                <th className="px-10 py-5 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                  Manage
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {recentAudits.map((audit) => (
-                <tr
-                  key={audit.id}
-                  className="group hover:bg-slate-50/30 transition-colors"
-                >
-                  <td className="px-10 py-6">
-                    <p className="text-sm font-bold text-slate-900 group-hover:text-blue-600 transition-colors">
-                      {audit.name}
-                    </p>
-                    <p className="text-[10px] font-bold text-slate-400 mt-0.5">
-                      ID: AUD-00{audit.id}
-                    </p>
-                  </td>
-                  <td className="px-10 py-6 text-sm font-bold text-slate-500">
-                    {audit.organization}
-                  </td>
-                  <td className="px-10 py-6">
-                    <span
-                      className={`inline-flex px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider border transition-all ${getStatusColor(
-                        audit.status
-                      )}`}
-                    >
-                      {audit.status}
-                    </span>
-                  </td>
-                  <td className="px-10 py-6">
-                    <div className="flex items-center gap-2 text-sm font-bold text-slate-500">
-                      <Calendar className="w-3.5 h-3.5 text-slate-300" />
-                      {audit.date}
-                    </div>
-                  </td>
-                  <td className="px-10 py-6">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-black text-slate-500 border border-white shadow-sm">
-                        {audit.auditor
-                          .split(" ")
-                          .map((n) => n[0])
-                          .join("")}
-                      </div>
-                      <span className="text-sm font-bold text-slate-500">
-                        {audit.auditor}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-10 py-6 text-right">
-                    <button className="p-2 text-slate-400 hover:text-blue-600 hover:bg-white rounded-xl transition-all shadow-sm">
-                      <MoreHorizontal className="w-5 h-5" />
-                    </button>
-                  </td>
+          {loading ? (
+            <div className="flex flex-col items-center justify-center py-20 gap-4">
+              <Loader2 className="w-10 h-10 text-blue-600 animate-spin" />
+              <p className="text-slate-400 font-bold uppercase tracking-widest text-[10px]">
+                Updating Ledger...
+              </p>
+            </div>
+          ) : sessions.length === 0 ? (
+            <div className="p-20 text-center">
+              <p className="text-slate-400 font-bold">
+                No active sessions found.
+              </p>
+            </div>
+          ) : (
+            <table className="w-full">
+              <thead>
+                <tr className="bg-slate-50/50">
+                  <th className="px-10 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                    Audit Profile
+                  </th>
+                  <th className="px-10 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                    Department
+                  </th>
+                  <th className="px-10 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                    Session Status
+                  </th>
+                  <th className="px-10 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                    Schedule
+                  </th>
+                  <th className="px-10 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                    Assignee
+                  </th>
+                  <th className="px-10 py-5 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                    Manage
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {sessions.map((audit) => (
+                  <tr
+                    key={audit.id}
+                    className="group hover:bg-slate-50/30 transition-colors"
+                  >
+                    <td className="px-10 py-6">
+                      <p className="text-sm font-bold text-slate-900 group-hover:text-blue-600 transition-colors">
+                        {audit.template_name}
+                      </p>
+                      <p className="text-[10px] font-bold text-slate-400 mt-0.5">
+                        ID: {audit.id.slice(0, 8).toUpperCase()}
+                      </p>
+                    </td>
+                    <td className="px-10 py-6 text-sm font-bold text-slate-500">
+                      {audit.department}
+                    </td>
+                    <td className="px-10 py-6">
+                      <span
+                        className={`inline-flex px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider border transition-all ${getStatusColor(
+                          audit.status
+                        )}`}
+                      >
+                        {audit.status}
+                      </span>
+                    </td>
+                    <td className="px-10 py-6">
+                      <div className="flex items-center gap-2 text-sm font-bold text-slate-500">
+                        <Calendar className="w-3.5 h-3.5 text-slate-300" />
+                        {new Date(audit.due_date).toLocaleDateString()}
+                      </div>
+                    </td>
+                    <td className="px-10 py-6">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-black text-slate-500 border border-white shadow-sm">
+                          {audit.auditor_name
+                            ?.split(" ")
+                            .map((n: string) => n[0])
+                            .join("")}
+                        </div>
+                        <span className="text-sm font-bold text-slate-500">
+                          {audit.auditor_name}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-10 py-6 text-right">
+                      <Link href={`/dashboard/audits/${audit.id}`}>
+                        <button className="p-2 text-slate-400 hover:text-blue-600 hover:bg-white rounded-xl transition-all shadow-sm">
+                          <MoreHorizontal className="w-5 h-5" />
+                        </button>
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
 
         <div className="px-10 py-6 bg-slate-50/30 border-t border-slate-50 flex items-center justify-center">
-          <button className="text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-blue-600 transition-colors">
-            Load More Records
-          </button>
+          <Link href="/dashboard/audits">
+            <button className="text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-blue-600 transition-colors">
+              View All Records
+            </button>
+          </Link>
         </div>
       </Card>
     </div>

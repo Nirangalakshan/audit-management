@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,51 +17,20 @@ import {
   ClipboardCheck,
   MoreHorizontal,
   X,
+  Loader2,
+  Users,
 } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
+import { toast } from "sonner";
 
 interface TeamMember {
-  id: number;
+  id: string;
   name: string;
   email: string;
   role: "Admin" | "Auditor" | "Reviewer";
   status: "Active" | "Pending";
-  joinDate: string;
+  created_at: string;
 }
-
-const initialMembers: TeamMember[] = [
-  {
-    id: 1,
-    name: "John Doe",
-    email: "john@auditflow.io",
-    role: "Admin",
-    status: "Active",
-    joinDate: "Jan 15, 2025",
-  },
-  {
-    id: 2,
-    name: "Jane Smith",
-    email: "jane@auditflow.io",
-    role: "Auditor",
-    status: "Active",
-    joinDate: "Feb 20, 2025",
-  },
-  {
-    id: 3,
-    name: "Mike Johnson",
-    email: "mike@auditflow.io",
-    role: "Auditor",
-    status: "Active",
-    joinDate: "Mar 10, 2025",
-  },
-  {
-    id: 4,
-    name: "Sarah Wilson",
-    email: "sarah@auditflow.io",
-    role: "Reviewer",
-    status: "Pending",
-    joinDate: "Jun 18, 2025",
-  },
-];
 
 const getRoleColor = (role: string) => {
   switch (role) {
@@ -88,34 +57,106 @@ const getStatusColor = (status: string) => {
 };
 
 export default function TeamPage() {
-  const [members, setMembers] = useState<TeamMember[]>(initialMembers);
+  const supabase = createClient();
+  const [members, setMembers] = useState<TeamMember[]>([]);
+  const [loading, setLoading] = useState(true);
   const [showInvite, setShowInvite] = useState(false);
+  const [inviteName, setInviteName] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("Auditor");
+  const [searchQuery, setSearchQuery] = useState("");
 
-  const handleInvite = () => {
-    if (inviteEmail) {
-      const newMember: TeamMember = {
-        id: Math.max(...members.map((m) => m.id), 0) + 1,
-        name: inviteEmail.split("@")[0],
-        email: inviteEmail,
-        role: inviteRole as "Admin" | "Auditor" | "Reviewer",
-        status: "Pending",
-        joinDate: new Date().toLocaleDateString("en-US", {
-          month: "short",
-          day: "numeric",
-          year: "numeric",
-        }),
-      };
-      setMembers([...members, newMember]);
-      setInviteEmail("");
-      setShowInvite(false);
+  useEffect(() => {
+    fetchMembers();
+  }, []);
+
+  const fetchMembers = async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from("team_members")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        // Table might not exist yet
+        console.error("Error fetching members:", error);
+        setMembers([]);
+      } else {
+        setMembers(data || []);
+      }
+    } catch (error) {
+      console.error("Error:", error);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const removeMember = (id: number) => {
-    setMembers(members.filter((m) => m.id !== id));
+  const handleInvite = async () => {
+    if (!inviteEmail || !inviteName) {
+      toast.error("Please provide both name and email");
+      return;
+    }
+
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      const orgId = (user as any)?.user_metadata?.organization_id;
+      const isValidUuid = (id: string) =>
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          id
+        );
+
+      const { data, error } = await supabase
+        .from("team_members")
+        .insert({
+          name: inviteName,
+          email: inviteEmail,
+          role: inviteRole,
+          status: "Active", // Simplified for demo
+          organization_id: isValidUuid(orgId) ? orgId : null,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      setMembers([data, ...members]);
+      setInviteName("");
+      setInviteEmail("");
+      setShowInvite(false);
+      toast.success("Team member added successfully");
+    } catch (error: any) {
+      toast.error(error.message || "Failed to add team member");
+    }
   };
+
+  const removeMember = async (id: string) => {
+    if (!id || id === "undefined") {
+      toast.error("Invalid member ID");
+      return;
+    }
+    try {
+      const { error } = await supabase
+        .from("team_members")
+        .delete()
+        .eq("id", id);
+
+      if (error) throw error;
+
+      setMembers(members.filter((m) => m.id !== id));
+      toast.success("Member access revoked");
+    } catch (error: any) {
+      toast.error("Failed to remove member");
+    }
+  };
+
+  const filteredMembers = members.filter(
+    (member) =>
+      member.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      member.email.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   return (
     <div className="space-y-12 pb-20">
@@ -140,7 +181,7 @@ export default function TeamPage() {
         </div>
       </div>
 
-      {/* Invite Form Modal-like Card */}
+      {/* Invite Form */}
       {showInvite && (
         <Card className="p-8 border-none shadow-2xl shadow-slate-200 bg-white rounded-[2.5rem] animate-in fade-in zoom-in-95 duration-200">
           <div className="flex items-center justify-between mb-8">
@@ -155,7 +196,18 @@ export default function TeamPage() {
             </button>
           </div>
           <div className="grid md:grid-cols-12 gap-6">
-            <div className="md:col-span-6">
+            <div className="md:col-span-4">
+              <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2 ml-1">
+                Full Name
+              </label>
+              <Input
+                placeholder="John Doe"
+                value={inviteName}
+                onChange={(e) => setInviteName(e.target.value)}
+                className="h-12 px-5 rounded-xl bg-slate-50 border-none text-sm font-bold focus:ring-2 focus:ring-blue-500 transition-all"
+              />
+            </div>
+            <div className="md:col-span-4">
               <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2 ml-1">
                 Email Address
               </label>
@@ -170,9 +222,9 @@ export default function TeamPage() {
                 />
               </div>
             </div>
-            <div className="md:col-span-3">
+            <div className="md:col-span-2">
               <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2 ml-1">
-                Assigned Role
+                Role
               </label>
               <select
                 value={inviteRole}
@@ -184,12 +236,12 @@ export default function TeamPage() {
                 <option value="Reviewer">Session Reviewer</option>
               </select>
             </div>
-            <div className="md:col-span-3 flex items-end gap-2">
+            <div className="md:col-span-2 flex items-end gap-2">
               <Button
-                className="flex-1 h-12 bg-slate-900 hover:bg-slate-800 text-white font-black text-xs uppercase tracking-widest rounded-xl transition-all shadow-lg"
+                className="w-full h-12 bg-slate-900 hover:bg-slate-800 text-white font-black text-xs uppercase tracking-widest rounded-xl transition-all shadow-lg"
                 onClick={handleInvite}
               >
-                Send Invitation
+                Add Member
               </Button>
             </div>
           </div>
@@ -203,6 +255,8 @@ export default function TeamPage() {
           <input
             type="text"
             placeholder="Search by name or email..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full h-11 pl-11 pr-4 rounded-xl bg-slate-50 border-none text-sm font-bold text-slate-600 focus:ring-2 focus:ring-blue-500 transition-all"
           />
         </div>
@@ -218,87 +272,106 @@ export default function TeamPage() {
       </div>
 
       {/* Team Members List */}
-      <Card className="border-none shadow-sm bg-white overflow-hidden rounded-4xl">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="bg-slate-50/50">
-                <th className="px-10 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                  Active Member
-                </th>
-                <th className="px-10 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                  Permission Role
-                </th>
-                <th className="px-10 py-5 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                  Operational Status
-                </th>
-                <th className="px-10 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                  Onboarding Date
-                </th>
-                <th className="px-10 py-5 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                  Manage
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {members.map((member) => (
-                <tr
-                  key={member.id}
-                  className="group hover:bg-slate-50/30 transition-colors"
-                >
-                  <td className="px-10 py-6">
-                    <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-2xl bg-slate-100 flex items-center justify-center text-xs font-black text-slate-400 border-2 border-white shadow-sm transition-transform group-hover:scale-110">
-                        {member.name
-                          .split(" ")
-                          .map((n) => n[0])
-                          .join("")}
-                      </div>
-                      <div>
-                        <p className="text-sm font-bold text-slate-900 group-hover:text-blue-600 transition-colors">
-                          {member.name}
-                        </p>
-                        <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase tracking-widest">
-                          {member.email}
-                        </p>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-10 py-6">
-                    <span
-                      className={`inline-flex px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider border transition-all ${getRoleColor(
-                        member.role
-                      )}`}
-                    >
-                      <Shield className="w-3 h-3 mr-1.5" />
-                      {member.role}
-                    </span>
-                  </td>
-                  <td className="px-10 py-6 text-center">
-                    <span
-                      className={`inline-flex px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider border transition-all ${getStatusColor(
-                        member.status
-                      )}`}
-                    >
-                      {member.status}
-                    </span>
-                  </td>
-                  <td className="px-10 py-6 text-sm font-bold text-slate-500">
-                    {member.joinDate}
-                  </td>
-                  <td className="px-10 py-6 text-right">
-                    <button
-                      onClick={() => removeMember(member.id)}
-                      className="p-2 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
-                    >
-                      <Trash2 className="w-5 h-5" />
-                    </button>
-                  </td>
+      <Card className="border-none shadow-sm bg-white overflow-hidden rounded-4xl text-slate-900">
+        {loading ? (
+          <div className="flex flex-col items-center justify-center py-20 gap-4">
+            <Loader2 className="w-10 h-10 text-blue-600 animate-spin" />
+            <p className="text-slate-400 font-bold uppercase tracking-widest text-[10px]">
+              Fetching team records...
+            </p>
+          </div>
+        ) : filteredMembers.length === 0 ? (
+          <div className="p-20 text-center">
+            <Users className="w-16 h-16 text-slate-100 mx-auto mb-6" />
+            <h3 className="text-lg font-black text-slate-900">
+              No team members found
+            </h3>
+            <p className="text-sm font-bold text-slate-400 mt-2">
+              Start by inviting your first team member.
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="bg-slate-50/50">
+                  <th className="px-10 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                    Active Member
+                  </th>
+                  <th className="px-10 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                    Permission Role
+                  </th>
+                  <th className="px-10 py-5 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                    Operational Status
+                  </th>
+                  <th className="px-10 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                    Onboarding Date
+                  </th>
+                  <th className="px-10 py-5 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                    Manage
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {filteredMembers.map((member) => (
+                  <tr
+                    key={member.id}
+                    className="group hover:bg-slate-50/30 transition-colors"
+                  >
+                    <td className="px-10 py-6">
+                      <div className="flex items-center gap-4">
+                        <div className="w-10 h-10 rounded-2xl bg-slate-100 flex items-center justify-center text-xs font-black text-slate-400 border-2 border-white shadow-sm transition-transform group-hover:scale-110 uppercase">
+                          {member.name
+                            .split(" ")
+                            .map((n) => n[0])
+                            .join("")}
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold text-slate-900 group-hover:text-blue-600 transition-colors">
+                            {member.name}
+                          </p>
+                          <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase tracking-widest">
+                            {member.email}
+                          </p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-10 py-6">
+                      <span
+                        className={`inline-flex px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider border transition-all ${getRoleColor(
+                          member.role
+                        )}`}
+                      >
+                        <Shield className="w-3 h-3 mr-1.5" />
+                        {member.role}
+                      </span>
+                    </td>
+                    <td className="px-10 py-6 text-center">
+                      <span
+                        className={`inline-flex px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider border transition-all ${getStatusColor(
+                          member.status
+                        )}`}
+                      >
+                        {member.status}
+                      </span>
+                    </td>
+                    <td className="px-10 py-6 text-sm font-bold text-slate-500">
+                      {new Date(member.created_at).toLocaleDateString()}
+                    </td>
+                    <td className="px-10 py-6 text-right">
+                      <button
+                        onClick={() => removeMember(member.id)}
+                        className="p-2 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
+                      >
+                        <Trash2 className="w-5 h-5" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Card>
 
       {/* Role Structure Breakdown */}

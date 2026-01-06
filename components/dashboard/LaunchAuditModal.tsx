@@ -56,10 +56,21 @@ export default function LaunchAuditModal({
 
   const fetchTeam = async () => {
     try {
-      const { data, error } = await supabase
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      const orgId = (user as any)?.user_metadata?.organization_id;
+
+      let query = supabase
         .from("team_members")
-        .select("id, name, role")
+        .select("id, name, role, email")
         .eq("status", "Active");
+
+      if (orgId) {
+        query = query.eq("organization_id", orgId);
+      }
+
+      const { data, error } = await query;
 
       if (error) throw error;
       setTeam(data || []);
@@ -81,6 +92,7 @@ export default function LaunchAuditModal({
         data: { user },
       } = await supabase.auth.getUser();
 
+      const selectedAuditor = team.find((t) => t.id === formData.auditorId);
       const orgId = (user as any)?.user_metadata?.organization_id;
       const isValidUuid = (id: string) =>
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
@@ -93,7 +105,7 @@ export default function LaunchAuditModal({
           template_id: template.id,
           template_name: template.name,
           auditor_id: formData.auditorId,
-          auditor_name: team.find((t) => t.id === formData.auditorId)?.name,
+          auditor_name: selectedAuditor?.name,
           department: formData.department,
           due_date: formData.dueDate,
           status: "Pending",
@@ -106,7 +118,40 @@ export default function LaunchAuditModal({
 
       if (error) throw error;
 
-      toast.success("Audit session launched successfully!");
+      // generate the direct access link for the focused execution page
+      const accessLink = `${window.location.origin}/execute/${data.id}`;
+
+      // Send email using Nodemailer API
+      try {
+        const response = await fetch("/api/send-audit-link", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            to: selectedAuditor?.email,
+            auditorName: selectedAuditor?.name,
+            templateName: template.name,
+            accessLink: accessLink,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          console.error("Email API Error:", errorData);
+          throw new Error("Email dispatch failed");
+        }
+      } catch (emailError) {
+        console.error("Failed to send email notification:", emailError);
+        // We don't throw here to ensure the audit launch itself is considered successful
+        toast.warning(
+          "Audit launched, but email notification failed. Please check SMTP settings."
+        );
+      }
+
+      toast.success(
+        `Audit launched! Notification sent to ${selectedAuditor?.email}`
+      );
       router.push("/dashboard/audits");
       onClose();
     } catch (error: any) {

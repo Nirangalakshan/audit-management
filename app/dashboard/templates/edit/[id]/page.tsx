@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, use } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Trash2, ChevronDown, ChevronUp } from "lucide-react";
+import { Plus, Trash2, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
@@ -22,22 +22,55 @@ interface Section {
   expanded: boolean;
 }
 
-export default function CreateTemplatePage() {
+export default function EditTemplatePage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = use(params);
   const router = useRouter();
   const supabase = createClient();
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
   const [templateName, setTemplateName] = useState("");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState("");
   const [version, setVersion] = useState("1.0.0");
   const [isActive, setIsActive] = useState(true);
-  const [sections, setSections] = useState<Section[]>([
-    {
-      id: "1",
-      name: "General Questions",
-      questions: [],
-      expanded: true,
-    },
-  ]);
+  const [sections, setSections] = useState<Section[]>([]);
+
+  useEffect(() => {
+    fetchTemplate();
+  }, [id]);
+
+  const fetchTemplate = async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from("audit_templates")
+        .select("*")
+        .eq("id", id)
+        .single();
+
+      if (error) throw error;
+
+      if (data) {
+        setTemplateName(data.name || "");
+        setDescription(data.description || "");
+        setCategory(data.category || "");
+        setVersion(data.version || "1.0.0");
+        setIsActive(data.is_active ?? true);
+        setSections(data.sections || []);
+      }
+    } catch (error: any) {
+      console.error("Error fetching template:", error);
+      toast.error("Failed to load template");
+      router.push("/dashboard/templates");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const addSection = () => {
     setSections([
@@ -122,41 +155,67 @@ export default function CreateTemplatePage() {
   };
 
   const handleSubmit = async () => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    if (!templateName || !category) {
+      toast.error("Template name and category are required");
+      return;
+    }
 
-    const orgId = (user as any)?.user_metadata?.organization_id;
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from("audit_templates")
+        .update({
+          name: templateName,
+          description,
+          category,
+          version,
+          is_active: isActive,
+          sections,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", id);
 
-    const { data, error } = await supabase.from("audit_templates").insert({
-      name: templateName,
-      description,
-      category,
-      version,
-      is_active: isActive,
-      sections,
-      created_by: user?.id,
-      organization_id: orgId,
-    });
+      if (error) throw error;
 
-    if (error) {
-      console.error("Error creating template:", error);
-      toast.error("Failed to create template. Please try again.");
-    } else {
-      toast.success("Template created successfully!");
+      toast.success("Template updated successfully!");
       router.push("/dashboard/templates");
+    } catch (error: any) {
+      console.error("Error updating template:", error);
+      toast.error("Failed to update template. Please try again.");
+    } finally {
+      setSaving(false);
     }
   };
 
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 gap-4">
+        <Loader2 className="w-10 h-10 text-blue-600 animate-spin" />
+        <p className="text-slate-400 font-bold uppercase tracking-widest text-[10px]">
+          Loading template...
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-3xl font-bold text-foreground">
-          Create Audit Template
-        </h1>
-        <p className="text-foreground/70 mt-1">
-          Build a custom audit template for your organization
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-foreground">
+            Edit Audit Template
+          </h1>
+          <p className="text-foreground/70 mt-1">
+            Modify the existing audit template
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          onClick={() => router.push("/dashboard/templates")}
+          className="border-border bg-transparent"
+        >
+          Cancel
+        </Button>
       </div>
 
       {/* Template Info */}
@@ -337,16 +396,11 @@ export default function CreateTemplatePage() {
       {/* Actions */}
       <div className="flex gap-4 pt-6">
         <Button
-          variant="outline"
-          className="flex-1 border-border bg-transparent"
-        >
-          Save as Draft
-        </Button>
-        <Button
           className="flex-1 bg-blue-600 hover:bg-blue-700"
           onClick={handleSubmit}
+          disabled={saving}
         >
-          Create Template
+          {saving ? "Saving Changes..." : "Update Template"}
         </Button>
       </div>
     </div>

@@ -73,10 +73,21 @@ export default function TeamPage() {
   const fetchMembers = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      const orgId = (user as any)?.user_metadata?.organization_id;
+
+      let query = supabase
         .from("team_members")
         .select("*")
         .order("created_at", { ascending: false });
+
+      if (orgId) {
+        query = query.eq("organization_id", orgId);
+      }
+
+      const { data, error } = await query;
 
       if (error) {
         // Table might not exist yet
@@ -115,6 +126,7 @@ export default function TeamPage() {
           email: inviteEmail,
           role: inviteRole,
           status: "Active", // Simplified for demo
+          created_by: user?.id,
           organization_id: isValidUuid(orgId) ? orgId : null,
         })
         .select()

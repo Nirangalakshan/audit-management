@@ -17,9 +17,11 @@ import {
   PenSquare,
   Play,
   Sparkles,
+  Trash2,
   Loader2,
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 import LaunchAuditModal from "@/components/dashboard/LaunchAuditModal";
@@ -74,6 +76,7 @@ const getCategoryColor = (category: string) => {
 };
 
 export default function TemplatesPage() {
+  const router = useRouter();
   const supabase = createClient();
   const [templates, setTemplates] = useState<Template[]>([]);
   const [loading, setLoading] = useState(true);
@@ -90,10 +93,21 @@ export default function TemplatesPage() {
   const fetchTemplates = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      const orgId = (user as any)?.user_metadata?.organization_id;
+
+      let query = supabase
         .from("audit_templates")
         .select("*")
         .order("created_at", { ascending: false });
+
+      if (orgId) {
+        query = query.eq("organization_id", orgId);
+      }
+
+      const { data, error } = await query;
 
       if (error) throw error;
       setTemplates(data || []);
@@ -123,6 +137,36 @@ export default function TemplatesPage() {
     "Environment",
     "HR",
   ];
+
+  const handleEdit = (template: Template) => {
+    router.push(`/dashboard/templates/edit/${template.id}`);
+  };
+
+  const handleDelete = async (template: Template) => {
+    toast.warning("Delete Audit Session?", {
+      description:
+        "Are you sure you want to delete this audit session? This will remove all associated responses.",
+      action: {
+        label: "Confirm Delete",
+        onClick: async () => {
+          try {
+            const { error } = await supabase
+              .from("audit_templates")
+              .delete()
+              .eq("id", template.id);
+
+            if (error) throw error;
+
+            toast.success("Template deleted successfully");
+            fetchTemplates(); // Refresh the list
+          } catch (error: any) {
+            console.error("Error deleting template:", error);
+            toast.error(error.message || "Failed to delete template");
+          }
+        },
+      },
+    });
+  };
 
   return (
     <div className="space-y-10">
@@ -234,20 +278,31 @@ export default function TemplatesPage() {
                   </div>
                 </div>
 
-                <div className="p-8 pt-0 flex gap-3">
+                <div className="p-8 pt-0 flex flex-col gap-3">
+                  <div className="flex gap-3">
+                    <Button
+                      onClick={() => handleEdit(template)}
+                      variant="outline"
+                      className="flex-1 h-11 rounded-xl border-slate-100 text-slate-600 font-bold text-xs hover:bg-slate-50 transition-all flex items-center gap-2"
+                    >
+                      <PenSquare className="w-4 h-4" />
+                      Edit
+                    </Button>
+                    <Button
+                      onClick={() => setLaunchingTemplate(template)}
+                      className="flex-1 h-11 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-lg shadow-blue-500/10 transition-all flex items-center gap-2"
+                    >
+                      <Play className="w-4 h-4 fill-current" />
+                      Launch
+                    </Button>
+                  </div>
                   <Button
-                    variant="outline"
-                    className="flex-1 h-11 rounded-xl border-slate-100 text-slate-600 font-bold text-xs hover:bg-slate-50 transition-all flex items-center gap-2"
+                    onClick={() => handleDelete(template)}
+                    variant="ghost"
+                    className="w-full h-11 rounded-xl text-rose-500 hover:text-rose-600 hover:bg-rose-50 font-bold text-xs transition-all flex items-center justify-center gap-2"
                   >
-                    <PenSquare className="w-4 h-4" />
-                    Edit
-                  </Button>
-                  <Button
-                    onClick={() => setLaunchingTemplate(template)}
-                    className="flex-1 h-11 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-lg shadow-blue-500/10 transition-all flex items-center gap-2"
-                  >
-                    <Play className="w-4 h-4 fill-current" />
-                    Launch
+                    <Trash2 className="w-4 h-4" />
+                    Delete Template
                   </Button>
                 </div>
               </Card>

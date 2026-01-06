@@ -15,6 +15,7 @@ import {
   LayoutGrid,
   List,
   Loader2,
+  Trash2,
 } from "lucide-react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
@@ -56,14 +57,24 @@ export default function AuditsPage() {
   const fetchSessions = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      const orgId = (user as any)?.user_metadata?.organization_id;
+
+      let query = supabase
         .from("audit_sessions")
         .select("*")
         .order("created_at", { ascending: false });
 
+      if (orgId) {
+        query = query.eq("organization_id", orgId);
+      }
+
+      const { data, error } = await query;
+
       if (error) {
         console.error("Error fetching sessions:", error);
-        // Fallback to empty instead of error for first run
         setSessions([]);
       } else {
         setSessions(data || []);
@@ -73,6 +84,31 @@ export default function AuditsPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleDeleteSession = async (id: string) => {
+    toast.warning("Delete Audit Session?", {
+      description:
+        "Are you sure you want to delete this audit session? This will remove all associated responses.",
+      action: {
+        label: "Confirm Delete",
+        onClick: async () => {
+          try {
+            const { error } = await supabase
+              .from("audit_sessions")
+              .delete()
+              .eq("id", id);
+
+            if (error) throw error;
+
+            toast.success("Audit session deleted successfully");
+            setSessions(sessions.filter((s) => s.id !== id));
+          } catch (error) {
+            toast.error("Failed to delete session");
+          }
+        },
+      },
+    });
   };
 
   const filteredSessions = sessions.filter(
@@ -301,17 +337,27 @@ export default function AuditsPage() {
                       {new Date(session.due_date).toLocaleDateString()}
                     </td>
                     <td className="px-10 py-6 text-right">
-                      <Link href={`/dashboard/audits/${session.id}`}>
+                      <div className="flex items-center justify-end gap-2">
+                        <Link href={`/execute/${session.id}`} target="_blank">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-9 px-4 rounded-xl border-slate-100 text-slate-600 font-bold text-xs hover:bg-slate-50 hover:text-blue-600 transition-all"
+                          >
+                            {session.status === "Completed"
+                              ? "Review"
+                              : "Continue"}
+                          </Button>
+                        </Link>
                         <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-9 px-4 rounded-xl border-slate-100 text-slate-600 font-bold text-xs hover:bg-slate-50 hover:text-blue-600 transition-all"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDeleteSession(session.id)}
+                          className="h-9 w-9 rounded-xl text-slate-300 hover:text-rose-600 hover:bg-rose-50 transition-all"
                         >
-                          {session.status === "Completed"
-                            ? "Review"
-                            : "Continue"}
+                          <Trash2 className="w-4 h-4" />
                         </Button>
-                      </Link>
+                      </div>
                     </td>
                   </tr>
                 ))}

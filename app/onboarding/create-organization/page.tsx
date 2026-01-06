@@ -65,18 +65,32 @@ export default function CreateOrganizationPage() {
         return;
       }
 
-      const { error } = await supabase.from("organization_profile").insert([
-        {
-          company_name: formData.companyName,
-          business_type: formData.businessType,
-          industry: formData.industry,
-          company_size: formData.companySize,
-          region: formData.country,
-          user_id: user.id,
-        },
-      ]);
+      // Step 1: Create the organization record and get its ID
+      const { data: orgData, error: orgError } = await supabase
+        .from("organization_profile")
+        .insert([
+          {
+            company_name: formData.companyName,
+            business_type: formData.businessType,
+            industry: formData.industry,
+            company_size: formData.companySize,
+            region: formData.country,
+            user_id: user.id,
+          },
+        ])
+        .select()
+        .single();
 
-      if (error) throw error;
+      if (orgError) throw orgError;
+
+      // Step 2: Save the organization_id to the user's metadata
+      const { error: updateError } = await supabase.auth.updateUser({
+        data: {
+          organization_id: orgData.id,
+        },
+      });
+
+      if (updateError) throw updateError;
 
       toast.success("Organization created successfully!");
       router.push("/dashboard");

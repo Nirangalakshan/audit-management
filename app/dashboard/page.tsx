@@ -26,9 +26,11 @@ import {
   Filter,
   Calendar,
   Loader2,
+  Trash2,
 } from "lucide-react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { toast } from "sonner";
 
 const complianceTrendData = [
   { month: "Jan", score: 65 },
@@ -51,11 +53,22 @@ export default function DashboardPage() {
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      const orgId = (user as any)?.user_metadata?.organization_id;
+
+      let query = supabase
         .from("audit_sessions")
         .select("*")
         .order("created_at", { ascending: false })
         .limit(5);
+
+      if (orgId) {
+        query = query.eq("organization_id", orgId);
+      }
+
+      const { data, error } = await query;
 
       if (error) {
         console.error("Error fetching dashboard data:", error);
@@ -145,6 +158,31 @@ export default function DashboardPage() {
       value: sessions.filter((s) => s.status === "Pending").length || 1,
     },
   ];
+
+  const handleDeleteSession = async (id: string) => {
+    toast.warning("Delete Audit Session?", {
+      description:
+        "Are you sure you want to delete this audit session? This will remove all associated responses.",
+      action: {
+        label: "Confirm Delete",
+        onClick: async () => {
+          try {
+            const { error } = await supabase
+              .from("audit_sessions")
+              .delete()
+              .eq("id", id);
+
+            if (error) throw error;
+
+            toast.success("Audit session deleted successfully");
+            setSessions(sessions.filter((s) => s.id !== id));
+          } catch (error) {
+            toast.error("Failed to delete session");
+          }
+        },
+      },
+    });
+  };
 
   return (
     <div className="space-y-10">
@@ -497,11 +535,27 @@ export default function DashboardPage() {
                       </div>
                     </td>
                     <td className="px-10 py-6 text-right">
-                      <Link href={`/dashboard/audits/${audit.id}`}>
-                        <button className="p-2 text-slate-400 hover:text-blue-600 hover:bg-white rounded-xl transition-all shadow-sm">
-                          <MoreHorizontal className="w-5 h-5" />
-                        </button>
-                      </Link>
+                      <div className="flex items-center justify-end gap-2">
+                        <Link href={`/execute/${audit.id}`} target="_blank">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-9 px-4 rounded-xl border-slate-100 text-slate-600 font-bold text-xs hover:bg-slate-50 hover:text-blue-600 transition-all"
+                          >
+                            {audit.status === "Completed"
+                              ? "Review"
+                              : "Continue"}
+                          </Button>
+                        </Link>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDeleteSession(audit.id)}
+                          className="h-9 w-9 rounded-xl text-slate-300 hover:text-rose-600 hover:bg-rose-50 transition-all"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))}
